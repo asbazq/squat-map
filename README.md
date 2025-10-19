@@ -14,7 +14,7 @@
   **스쿼트 판별**
 
 ```
-SUMMARY: PASS
+SUMMARY: FAIL
 PASS: 0 | FAIL: 1
 TH: 0.1 | HOLD: 2
 max depth_ratio: 0.09
