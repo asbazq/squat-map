@@ -2,11 +2,14 @@
 
 스쿼트 랭킹 지도를 만들 계획이라, 사용자별 스쿼트가 **풀 스쿼트(힙이 무릎보다 낮음)** 인지 자동 판별할 필요가 있었고, 그 **하위 모듈**로 이 트래커를 만들었습니다.
 영상에서 포즈를 추적한 뒤, **추적된 키포인트로 깊이를 계산**해 `PASS/FAIL/UNSURE`를 결정합니다.
-  ![녹음 2025-10-19 132401](https://github.com/user-attachments/assets/106490d6-14a8-4450-993a-919b1be74539)
+
+![2025-10-19132401-ezgif com-loop-count](https://github.com/user-attachments/assets/4bebfef4-bc88-4acf-ac71-c8ebea844238)
+
   
   **POSE 트래킹**
 
-  ![녹음 2025-10-19 134244](https://github.com/user-attachments/assets/01d192c0-ad79-4329-82a3-7bbeedffd161)
+![2025-10-19134244-ezgif com-loop-count](https://github.com/user-attachments/assets/ddfb5615-e736-4f11-bcfd-64812b2035f4)
+
   
   **스쿼트 판별**
   
