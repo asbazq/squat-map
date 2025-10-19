@@ -22,6 +22,8 @@ max depth_ratio: 0.09
   
 여러 사용자의 원본 영상을 서버로 업로드하면 **비용·확장성·개인정보** 문제가 발생합니다. 그래서 **분석은 전부 브라우저(클라이언트)** 에서 수행하고, **요약 결과(깊이·PASS/FAIL 등)** 만 서버로 보내도록 설계했습니다.
 
+[구체적 내용 블로그 참조](https://velog.io/@asbazq/Squat-Depth-Tracker-Map#4-%EA%B9%8A%EC%9D%B4-%EA%B3%84%EC%82%B0%EC%A2%8C%C2%B7%EC%9A%B0-%EB%8F%85%EB%A6%BD-%EA%B3%84%EC%82%B0-%E2%86%92-%EB%8D%94-%EC%95%88%EC%A0%95%EC%A0%81%EC%9D%B8-%EC%AA%BD-%EC%84%A0%ED%83%9D)
+
 ---
 
 ## 왜 MediaPipe Pose Landmarker (WASM/WebGL) 인가?
