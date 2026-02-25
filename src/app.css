@@ -1,0 +1,173 @@
+:root{
+  --bg: #0b0d10;
+  --bg-soft: #11151a;
+  --card: #151a21;
+  --text: #e9eef5;
+  --muted: #9aa7b3;
+  --primary: #4aa8ff;
+  --primary-strong: #2f92f0;
+  --ring: rgba(74,168,255,.35);
+}
+
+@media (prefers-color-scheme: light){
+  :root{
+    --bg: #f6f8fb;
+    --bg-soft: #eef2f7;
+    --card: #ffffff;
+    --text: #0c1116;
+    --muted: #57636f;
+    --primary: #2b78ff;
+    --primary-strong: #1e63e6;
+    --ring: rgba(43,120,255,.25);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  background: radial-gradient(1200px 600px at 20% -10%, rgba(74,168,255,.08), transparent 60%),
+              radial-gradient(1000px 500px at 100% 0%, rgba(124,58,237,.08), transparent 60%),
+              var(--bg);
+  color: var(--text);
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.app{
+  max-width: 1080px;
+  margin: 32px auto 64px;
+  padding: 0 16px;
+}
+
+.hero{
+  background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(0,0,0,.02));
+  border: 1px solid rgba(255,255,255,.06);
+  backdrop-filter: blur(6px);
+  border-radius: 16px;
+  padding: 28px 24px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+
+.hero h1{
+  margin: 0 0 10px;
+  font-size: clamp(22px, 3.4vw, 32px);
+  letter-spacing: .2px;
+}
+
+.hero p{
+  margin: 0;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.hero p strong{ color: var(--text); }
+
+.toolbar{
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.btn{
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: .2px;
+  transition: transform .06s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
+}
+.btn:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0,0,0,.18);
+}
+.btn:focus{
+  outline: none;
+  box-shadow: 0 0 0 4px var(--ring);
+}
+.btn.primary{
+  background: linear-gradient(180deg, var(--primary), var(--primary-strong));
+  border-color: transparent;
+  color: #fff;
+}
+.btn.ghost{
+  background: transparent;
+  border-color: rgba(255,255,255,.12);
+}
+
+.panel{
+  margin-top: 18px;
+  background: var(--card);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 24px rgba(0,0,0,.22);
+}
+
+.panel-header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(0,0,0,.02));
+}
+.panel-header h2{
+  margin: 0;
+  font-size: 18px;
+}
+.panel-header .hint{
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.panel-body{
+  padding: 14px;
+}
+
+@media (max-width: 640px){
+  .panel-body{ padding: 10px; }
+  .toolbar{ gap: 8px; }
+}
+.uploader{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+
+/* 접근성 보존하며 시각적 숨김 */
+.uploader-input{
+  position:absolute; width:1px; height:1px; overflow:hidden;
+  clip:rect(0 0 0 0); clip-path: inset(50%);
+  white-space:nowrap; border:0; padding:0; margin:-1px;
+}
+
+.btn-upload{
+  height: 40px; padding: 0 16px; border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: linear-gradient(180deg, var(--primary, #4aa8ff), var(--primary-strong, #2f92f0));
+  color:#fff; font-weight:700; cursor:pointer;
+  transition: transform .06s ease, box-shadow .12s ease;
+}
+.btn-upload:hover{ transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+
+.file-name{
+  font-size: 14px; opacity:.8; max-width: 320px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+/* 드롭존 */
+.drop{
+  margin-top: 10px; padding: 18px; border: 1.5px dashed rgba(255,255,255,.25);
+  border-radius: 12px; text-align:center; user-select:none; cursor: pointer;
+  background: rgba(255,255,255,.02); transition: border-color .15s ease, background .15s ease;
+}
+.drop.drag{
+  border-color: var(--primary, #4aa8ff);
+  background: rgba(74,168,255,.08);
+}
+.drop-title{ font-weight: 700; margin-bottom: 4px; }
+.drop-tip{ font-size: 13px; opacity: .85; }
+.drop-accept{ font-size: 12px; opacity: .65; margin-top: 4px; }

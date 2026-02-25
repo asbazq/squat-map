@@ -1,5 +1,5 @@
 ﻿// src/lib/depth.js
-import { VIS_TH, TH, HOLD, SIDE_PX } from "../config";
+import { VIS_TH, TH, HOLD, SIDE_PX, SIDE_RATIO } from "../config";
 
 // --- landmark indices (MediaPipe) ---
 const LHIP=23, RHIP=24, LKNEE=25, RKNEE=26, LSHOULDER=11, RSHOULDER=12, LANKLE=27, RANKLE=28;
@@ -18,7 +18,9 @@ function measureLeg(lm, hipIdx, kneeIdx, W, H){
   const femur = Math.hypot(hip.x - knee.x, hip.y - knee.y);
   if (!femur) return null;
   const depthRaw = hip.y - knee.y;
-  const depth = depthRaw > 0 ? depthRaw / femur : 0;
+  const signed = depthRaw / femur;
+  // Normalize so standing is near 0 and depth increases as hip descends.
+  const depth = Math.max(0, signed + 1);
   return { femur, depth };
 }
 function pickBestLeg(lm, W, H){
@@ -38,9 +40,10 @@ function sideScore(lm, W, H){
     [LANKLE, RANKLE]
   ];
 
+  const scale = Math.max(W || 0, H || 0, 1);
   let dxMax = 0;
   let dzMax = 0;
-  const scale = Math.max(W || 0, H || 0, 1);
+  let ratioMax = 0;
 
   for (const [aIdx, bIdx] of pairs) {
     const a = lm?.[aIdx];
@@ -50,9 +53,11 @@ function sideScore(lm, W, H){
     const dzPx = Math.abs((a.z ?? 0) - (b.z ?? 0)) * scale * 5;
     dxMax = Math.max(dxMax, dxPx);
     dzMax = Math.max(dzMax, dzPx);
+    const ratio = dxPx / (dzPx + 1); // prefer big horizontal spread with shallow depth difference
+    ratioMax = Math.max(ratioMax, ratio);
   }
 
-  return Math.max(dxMax, dzMax);
+  return { dx: dxMax, dz: dzMax, ratio: ratioMax };
 }
 
 function profileDepthSpreadPx(lm, W, H) {
@@ -78,7 +83,7 @@ export function pushDepthFrame(landmarks, W, H, out){
   if (!landmarks?.length){ out.push(null); return; }
   const side = sideScore(landmarks, W, H);
   const profilePx = profileDepthSpreadPx(landmarks, W, H);
-  const sideOk = side >= SIDE_PX || profilePx >= SIDE_PX * PROFILE_SIDE_RATIO;
+  const sideOk = (side.dx >= SIDE_PX && side.ratio >= SIDE_RATIO) || profilePx >= SIDE_PX * PROFILE_SIDE_RATIO;
   if (!sideOk){ out.push(null); return; }
   const leg = pickBestLeg(landmarks, W, H);
   out.push(leg && Number.isFinite(leg.depth) ? leg.depth : null);
@@ -90,7 +95,7 @@ export function diagnoseFrame(lm, W, H){
 
   const side = sideScore(lm, W, H);
   const profilePx = profileDepthSpreadPx(lm, W, H);
-  const sideOk = side >= SIDE_PX || profilePx >= SIDE_PX * PROFILE_SIDE_RATIO;
+  const sideOk = (side.dx >= SIDE_PX && side.ratio >= SIDE_RATIO) || profilePx >= SIDE_PX * PROFILE_SIDE_RATIO;
   if (!sideOk) return { ok:false, reason:"side-too-small", side, profilePx };
 
   const leg = pickBestLeg(lm, W, H);
@@ -122,7 +127,17 @@ export function summarizeDepth(series, opts={}){
   const MIN_GAP = opts.MIN_GAP ?? 12;           // cooldown frames
   const MIN_PROM= opts.MIN_PROM?? 0.04;         // min peak prominence
 
-  if (!series.length) return { summary: "UNSURE", pass: 0, fail: 0, threshold: TH_HIGH, hold: HOLD_N };
+  if (!series.length) {
+    return {
+      summary: "UNSURE",
+      pass: 0,
+      fail: 0,
+      unsure: 0,
+      reps: [],
+      threshold: TH_HIGH,
+      hold: HOLD_N
+    };
+  }
 
   // 1) smoothing: median5 -> ma3
   const s = series.slice();
@@ -133,8 +148,9 @@ export function summarizeDepth(series, opts={}){
   }
   const t = s.map((v,i)=> (v==null? null : (i>0 && i<s.length-1 ? ma3(s,i): v)));
 
-  let pass = 0, fail = 0;
+  let pass = 0, fail = 0, unsure = 0;
   let depthMax = null;
+  const reps = [];
 
   // 2) peak detection with hysteresis & prominence
   for (let i=2; i<t.length-2; i++){
@@ -159,17 +175,25 @@ export function summarizeDepth(series, opts={}){
       if (v!=null && v >= TH_LOW) hold++;
     }
 
-    const ok = (c >= TH_HIGH) && (hold >= HOLD_N);
-    if (ok) {
-      pass++;
-      depthMax = depthMax == null ? c : Math.max(depthMax, c);
-      i += MIN_GAP;
-    } else {
-      // ?쏀븳 ?꾨낫??怨쇰룄??FAIL 諛⑹?瑜??꾪빐 湲곕낯 臾댁떆
-      // ?ㅽ뙣???멸퀬 ?띕떎硫??ㅼ쓬 以?二쇱꽍 ?댁젣
-      // fail++;
-      i += Math.max(4, (MIN_GAP/2)|0);
-    }
+    let status;
+    if (c >= TH_HIGH && hold >= HOLD_N) status = "PASS";
+    else if (hold >= Math.max(1, HOLD_N - 1)) status = "FAIL";
+    else status = "UNSURE";
+
+    reps.push({
+      index: reps.length + 1,
+      frame: i,
+      status,
+      peak: c,
+      hold
+    });
+
+    if (status === "PASS") pass++;
+    else if (status === "FAIL") fail++;
+    else unsure++;
+
+    depthMax = depthMax == null ? c : Math.max(depthMax, c);
+    i += status === "PASS" ? MIN_GAP : Math.max(4, (MIN_GAP / 2) | 0);
   }
 
   if (depthMax == null) {
@@ -181,14 +205,16 @@ export function summarizeDepth(series, opts={}){
   }
 
   let summary;
-  if (pass > 0 && fail === 0) summary = "PASS";
-  else if (pass > 0) summary = "MIXED";
+  if (pass > 0 && fail === 0 && unsure === 0) summary = "PASS";
+  else if (pass > 0 || fail > 0) summary = "MIXED";
   else summary = depthMax != null ? "FAIL" : "UNSURE";
 
   return {
     summary,
     pass,
     fail,
+    unsure,
+    reps,
     threshold: TH_HIGH,
     hold: HOLD_N,
     depthRatioMax: depthMax ?? undefined

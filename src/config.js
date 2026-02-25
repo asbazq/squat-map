@@ -1,4 +1,5 @@
-export const VIS_TH  = 0.3;   // 키포인트 가시성
-export const TH      = 0.1;  // depth_ratio 임계치 (0.18~0.25 튜닝)
-export const HOLD    = 2;     // 바닥 근처 유지 프레임
-export const SIDE_PX = 30;    // 어깨폭(px) 최소(정면 회피)
+export const VIS_TH  = 0.3;   // keypoint visibility threshold
+export const TH      = 1;   // depth_ratio pass threshold (1.0 ~= hip at/under knee)
+export const HOLD    = 2;     // frames to stay near bottom
+export const SIDE_PX = 30;    // minimum shoulder width in px
+export const SIDE_RATIO = 4;  // dx/dz ratio needed for side-on view
