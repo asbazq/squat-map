@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./app.css";
 import VideoInput from "./components/VideoInput";
 import RecordForm from "./components/RecordForm";
 import RankingBoard from "./components/RankingBoard";
 import RegionMap from "./components/RegionMap";
 import AdminPanel from "./components/AdminPanel";
+import DashboardOverview from "./components/DashboardOverview";
+import AnalysisSummary from "./components/AnalysisSummary";
 import {
   enqueueReviewRecords,
   isAdminAuthenticated,
@@ -39,6 +41,7 @@ export default function App() {
   const [adminLoginError, setAdminLoginError] = useState("");
   const [isAdminButtonVisible, setIsAdminButtonVisible] = useState(false);
   const [isAdminModalVisible, setIsAdminModalVisible] = useState(false);
+  const [videoControls, setVideoControls] = useState(null);
 
   useEffect(() => {
     setRecords(loadRecords());
@@ -48,6 +51,24 @@ export default function App() {
 
   const rankings = useMemo(() => computeRankings(records), [records]);
   const regionLeaders = useMemo(() => computeRegionLeaders(records), [records]);
+
+  const handleVideoControlsChange = useCallback((nextControls) => {
+    setVideoControls((prev) => {
+      if (
+        prev &&
+        prev.hasVideo === nextControls.hasVideo &&
+        prev.fileLabel === nextControls.fileLabel &&
+        prev.isExporting === nextControls.isExporting &&
+        prev.isFaceMosaic === nextControls.isFaceMosaic &&
+        prev.openFilePicker === nextControls.openFilePicker &&
+        prev.toggleFaceMosaic === nextControls.toggleFaceMosaic &&
+        prev.exportSkeletonVideo === nextControls.exportSkeletonVideo
+      ) {
+        return prev;
+      }
+      return nextControls;
+    });
+  }, []);
 
   function handleAnalysisComplete(result, videoFile) {
     setLatestResult(result);
@@ -114,9 +135,9 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
-      <section className="hero-card hero-swap">
-        <div className="hero-copy">
+    <main className="app-shell executive-shell">
+      <section className="hero-card dashboard-header-card">
+        <div className="dashboard-header-copy">
           <div className="hero-topbar">
             {isAdminButtonVisible ? (
               <button type="button" className="admin-inline-btn" onClick={() => setIsAdminModalVisible(true)}>
@@ -128,55 +149,102 @@ export default function App() {
               </button>
             )}
           </div>
-          <h1>스쿼트 지도</h1>
+          <h1>Squat Performance Dashboard</h1>
           <p>
-            사용자가 영상을 올리면 브라우저에서 스쿼트 깊이를 판별합니다.
-            <strong> 풀스쿼트 PASS</strong>가 나오면 위치와 기록을 직접 입력해 저장하고,
-            저장된 결과는 지역별 순위와 전국 순위로 집계됩니다.
+            영상 기반 풀스쿼트 판별, 지역 지도, 랭킹, 관리자 검수 흐름을 한 화면에서 관리하는 운영 대시보드입니다.
           </p>
         </div>
 
         <div className="hero-meta" aria-label="서비스 요약 통계">
-          <span><strong>{records.length}</strong> 인증 기록</span>
-          <span><strong>{rankings.national.length}</strong> 전국 랭커</span>
-          <span><strong>{regionLeaders.length}</strong> 지역 리더</span>
+          <span><strong>{records.length}</strong> Total Records</span>
+          <span><strong>{rankings.national.length}</strong> National Ranked</span>
+          <span><strong>{regionLeaders.length}</strong> Active Leaders</span>
+          <span><strong>{reviewQueue.length}</strong> Review Queue</span>
         </div>
       </section>
 
-      <section className="content-grid">
-        <div className="stack">
-          <section className="surface-card">
-            <div className="section-head">
-              <div><span className="section-kicker">1. 영상 인증</span><h2>풀스쿼트 판별</h2></div>
-              <p>측면 영상일수록 판별 정확도가 높습니다.</p>
-            </div>
-            <VideoInput onAnalysisComplete={handleAnalysisComplete} />
-          </section>
+      <DashboardOverview
+        records={records}
+        rankings={rankings}
+        selectedRegion={selectedRegion}
+        reviewQueueCount={reviewQueue.length}
+      />
 
-          <section className="surface-card">
-            <div className="section-head">
-              <div><span className="section-kicker">2. 기록 등록</span><h2>통과한 기록만 저장</h2></div>
-              <p>사용자가 직접 기록만 입력하고 위치는 자동으로 지역 판정에 반영합니다.</p>
+      <section className="dashboard-core-grid">
+        <section className="surface-card dashboard-map-card">
+          <div className="section-head section-head-balanced">
+            <div>
+              <span className="section-kicker">Main Visualization</span>
+              <h2>지역 분포 맵</h2>
+            </div>
+            <p>{REGIONS.includes(selectedRegion) ? `${selectedRegion} 기준으로 지도와 최근 등록 기록을 동기화합니다.` : "지역을 선택하면 지도와 랭킹이 함께 바뀝니다."}</p>
+          </div>
+          <RegionMap records={records} selectedRegion={selectedRegion} onSelectRegion={setSelectedRegion} />
+        </section>
+
+        <section className="surface-card dashboard-ranking-card">
+          <div className="section-head">
+            <div>
+              <span className="section-kicker">Ranking Snapshot</span>
+              <h2>지역별 / 전국 순위</h2>
+            </div>
+            <p>선택한 지역 순위와 전국 상위권을 같은 톤으로 비교합니다.</p>
+          </div>
+          <RankingBoard rankings={rankings} selectedRegion={selectedRegion} onSelectRegion={setSelectedRegion} />
+        </section>
+      </section>
+
+      <section className="operations-grid">
+        <section className="surface-card video-ops-card">
+          <div className="section-head">
+            <div>
+              <span className="section-kicker">Video Certification</span>
+              <h2>풀스쿼트 영상 인증</h2>
+            </div>
+            <div className="section-head-side section-head-side-balanced">
+              <p>측면 촬영 영상을 업로드하면 브라우저에서 바로 스켈레톤과 깊이 분석을 수행합니다.</p>
+              <div className="section-head-actions">
+                <button type="button" className="btn-upload" onClick={() => videoControls?.openFilePicker?.()}>
+                  영상 선택
+                </button>
+                <button
+                  type="button"
+                  className="btn-upload"
+                  onClick={() => videoControls?.exportSkeletonVideo?.()}
+                  disabled={!videoControls?.hasVideo || videoControls?.isExporting}
+                >
+                  {videoControls?.isExporting ? "생성 중..." : "스켈레톤 다운로드"}
+                </button>
+                <button type="button" className="secondary-btn" onClick={() => videoControls?.toggleFaceMosaic?.()}>
+                  {videoControls?.isFaceMosaic ? "얼굴 모자이크 ON" : "얼굴 모자이크 OFF"}
+                </button>
+              </div>
+            </div>
+          </div>
+          <VideoInput onAnalysisComplete={handleAnalysisComplete} onControlsChange={handleVideoControlsChange} />
+        </section>
+
+        <div className="operations-side-stack">
+          <section className="surface-card record-ops-card">
+            <div className="section-head section-head-balanced">
+              <div>
+                <span className="section-kicker">Record Entry</span>
+                <h2>통과 기록 저장</h2>
+              </div>
+              <p>PASS 판정이 난 경우에만 지역과 기록을 저장할 수 있습니다.</p>
             </div>
             <RecordForm pendingSubmission={pendingSubmission} latestResult={latestResult} onSave={handleSaveRecord} />
           </section>
-        </div>
 
-        <div className="stack">
-          <section className="surface-card">
-            <div className="section-head">
-              <div><span className="section-kicker">3. 지역 지도</span><h2>기록 분포</h2></div>
-              <p>지역을 눌러 해당 지역 순위를 바로 확인할 수 있습니다.</p>
+          <section className="surface-card analysis-ops-card">
+            <div className="section-head section-head-balanced">
+              <div>
+                <span className="section-kicker">Analysis Result</span>
+                <h2>분석 결과 요약</h2>
+              </div>
+              <p>인증 후 생성되는 스쿼트 깊이, 반복 해석, 통과 여부를 여기서 확인할 수 있습니다.</p>
             </div>
-            <RegionMap records={records} selectedRegion={selectedRegion} onSelectRegion={setSelectedRegion} />
-          </section>
-
-          <section className="surface-card">
-            <div className="section-head">
-              <div><span className="section-kicker">4. 랭킹</span><h2>지역별 / 전국 순위</h2></div>
-              <p>{REGIONS.includes(selectedRegion) ? `${selectedRegion} 기준` : "전국 기준"}으로 정렬합니다.</p>
-            </div>
-            <RankingBoard rankings={rankings} selectedRegion={selectedRegion} onSelectRegion={setSelectedRegion} />
+            <AnalysisSummary result={latestResult} />
           </section>
         </div>
       </section>
@@ -186,7 +254,7 @@ export default function App() {
           <section className="admin-modal" role="dialog" aria-modal="true" aria-label="관리자 공간" onClick={(event) => event.stopPropagation()}>
             <div className="admin-modal-head">
               <div>
-                <span className="section-kicker">관리자 전용</span>
+                <span className="section-kicker">Admin Console</span>
                 <h2>관리자 공간</h2>
               </div>
               <button type="button" className="secondary-btn" onClick={() => setIsAdminModalVisible(false)}>

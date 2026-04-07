@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: squat-map-backend
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/squat_map?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:password}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+  jackson:
+    time-zone: Asia/Seoul
+
+server:
+  port: ${PORT:8080}
+
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+    allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}
+    max-age-seconds: ${CORS_MAX_AGE_SECONDS:3600}
+  admin:
+    bootstrap-username: ${ADMIN_BOOTSTRAP_USERNAME:admin}
+    bootstrap-password: ${ADMIN_BOOTSTRAP_PASSWORD:change-me}

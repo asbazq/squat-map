@@ -6,23 +6,25 @@ function RankingList({ title, items, emptyLabel, showNotesTopFive = false }) {
       <div className="ranking-title">
         <h3>{title}</h3>
       </div>
-      {items.length ? (
-        <ol className="ranking-list">
-          {items.map((item, index) => (
-            <li key={item.id} className="ranking-item">
-              <span className="rank-index">{index + 1}</span>
-              <div className="rank-copy">
-                <strong>{item.nickname}</strong>
-                <span>{item.region}</span>
-                {showNotesTopFive && index < 5 && item.notes ? <p className="rank-note">{item.notes}</p> : null}
-              </div>
-              <strong className="rank-value">{item.recordKg}kg</strong>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <div className="empty-panel">{emptyLabel}</div>
-      )}
+      <div className="ranking-body">
+        {items.length ? (
+          <ol className="ranking-list">
+            {items.map((item, index) => (
+              <li key={item.id} className="ranking-item">
+                <span className="rank-index">{index + 1}</span>
+                <div className="rank-copy">
+                  <strong>{item.nickname}</strong>
+                  <span>{item.region}</span>
+                  {showNotesTopFive && index < 5 && item.notes ? <p className="rank-note">{item.notes}</p> : null}
+                </div>
+                <strong className="rank-value">{item.recordKg}kg</strong>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="empty-panel">{emptyLabel}</div>
+        )}
+      </div>
     </div>
   );
 }

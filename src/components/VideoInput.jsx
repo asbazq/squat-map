@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { createLandmarker } from "../lib/pose";
 import { diagnoseFrame, pushDepthFrame, summarizeDepth } from "../lib/depth";
 import { TH } from "../config";
@@ -11,6 +12,80 @@ const POSE_EDGES = [
 ];
 const FOOT_IDXS = new Set([27, 28, 29, 30, 31, 32]);
 const FACE_IDXS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const MAX_DEPTH_STEP = 0.22;
+
+function getResultTone(summary) {
+  if (summary === "PASS") return "pass";
+  if (summary === "FAIL") return "fail";
+  return "mixed";
+}
+
+function getResultHeadline(result) {
+  if (!result) return "분석 전";
+  if (result.summary === "PASS") return "풀스쿼트 기준을 통과했습니다";
+  if (result.summary === "FAIL") return "깊이가 기준보다 부족했습니다";
+  if (result.summary === "MIXED") return "반복마다 깊이 편차가 있었습니다";
+  return "판정이 불안정해 추가 촬영이 필요합니다";
+}
+
+function getDepthMessage(depthRatioMax) {
+  if (!Number.isFinite(depthRatioMax)) return "깊이 수치를 안정적으로 읽지 못했습니다.";
+  if (depthRatioMax >= TH + 0.1) return "엉덩이가 무릎 라인 아래로 충분히 내려간 강한 풀스쿼트입니다.";
+  if (depthRatioMax >= TH) return "기준선은 넘겼지만 여유가 크지 않아 반복마다 편차를 체크하는 편이 좋습니다.";
+  if (depthRatioMax >= TH - 0.1) return "거의 기준에 도달했지만 풀스쿼트로 보기에는 약간 부족합니다.";
+  return "하프 스쿼트에 가까운 깊이로 측정됐습니다.";
+}
+
+function getConsistencyMessage(result) {
+  if (!result) return "";
+  const repCount = result.reps?.length ?? 0;
+  if (!repCount) return "반복이 명확하게 감지되지 않아 측면 각도와 전신 프레임 구성을 다시 맞춰보는 것이 좋습니다.";
+  if (result.pass > 0 && result.fail === 0 && result.unsure === 0) return `감지된 ${repCount}회가 모두 같은 기준으로 통과해 동작 일관성이 좋습니다.`;
+  if (result.pass > 0 && result.fail > 0) return `감지된 ${repCount}회 중 일부만 통과했습니다. 반복마다 깊이 차이가 있었습니다.`;
+  if (result.unsure > 0) return `감지된 ${repCount}회 중 일부는 판정이 불안정했습니다. 촬영 각도나 가림을 확인해 보세요.`;
+  return `감지된 ${repCount}회 모두 기준 미달로 판정됐습니다. 내려가는 깊이를 조금 더 확보해 보세요.`;
+}
+
+function buildResultInsights(result) {
+  if (!result) return null;
+  const repCount = result.reps?.length ?? 0;
+  return {
+    tone: getResultTone(result.summary),
+    headline: getResultHeadline(result),
+    body: `${getDepthMessage(result.depthRatioMax)} ${getConsistencyMessage(result)}`.trim(),
+    stats: [
+      {
+        label: "판정 결과",
+        value: result.summary,
+        description: result.summary === "PASS" ? "기록 등록 가능" : "추가 시도 권장",
+      },
+      {
+        label: "최대 깊이",
+        value: Number.isFinite(result.depthRatioMax) ? result.depthRatioMax.toFixed(2) : "-",
+        description: `기준값 ${result.threshold.toFixed?.(2) ?? result.threshold} 이상이면 통과에 유리`,
+      },
+      {
+        label: "감지 반복",
+        value: `${repCount}회`,
+        description: `PASS ${result.pass} / FAIL ${result.fail} / UNSURE ${result.unsure ?? 0}`,
+      },
+      {
+        label: "하단 유지",
+        value: `${result.hold}프레임`,
+        description: "바닥 구간을 얼마나 안정적으로 유지했는지 반영",
+      },
+    ],
+    reps: (result.reps ?? []).map((rep) => ({
+      ...rep,
+      description:
+        rep.status === "PASS"
+          ? `최저점 ${rep.peak.toFixed(2)}로 기준을 넘겼고 ${rep.hold}프레임 유지했습니다.`
+          : rep.status === "FAIL"
+            ? `최저점 ${rep.peak.toFixed(2)}까지 내려갔지만 기준 통과에는 부족했습니다.`
+            : `최저점 ${rep.peak.toFixed(2)} 근처에서 움직임은 있었지만 판정이 불안정했습니다.`,
+    })),
+  };
+}
 
 function drawPose(ctx, lm, vw, vh, { ptR = 3, alpha = 0.9, visTh = 0.5, strokePx = 2 } = {}) {
   ctx.save();
@@ -120,9 +195,30 @@ function smoothLandmarksForRender(curr, prev, W, H) {
   return out;
 }
 
-export default function VideoInput({ onAnalysisComplete }) {
+function stabilizeDepthValue(nextValue, history) {
+  if (nextValue == null) return null;
+  const prev = history.at(-1);
+  const prev2 = history.at(-2);
+  if (prev == null) return nextValue;
+
+  const delta = nextValue - prev;
+  if (!Number.isFinite(delta)) return prev;
+
+  if (Math.abs(delta) <= MAX_DEPTH_STEP) return nextValue;
+  if (prev2 == null) return prev + Math.sign(delta) * MAX_DEPTH_STEP;
+
+  const prevDelta = prev - prev2;
+  const isPreviousStable = Math.abs(prevDelta) < 0.08;
+  if (isPreviousStable || Math.sign(prevDelta) !== Math.sign(delta)) {
+    return prev + Math.sign(delta) * MAX_DEPTH_STEP;
+  }
+  return nextValue;
+}
+
+export default function VideoInput({ onAnalysisComplete, onControlsChange }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const fileInputRef = useRef(null);
   const currentFileRef = useRef(null);
   const rafRef = useRef(0);
   const urlRef = useRef(null);
@@ -139,6 +235,7 @@ export default function VideoInput({ onAnalysisComplete }) {
   const [drag, setDrag] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isFaceMosaic, setIsFaceMosaic] = useState(false);
+  const [hasVideo, setHasVideo] = useState(false);
   const isFaceMosaicRef = useRef(false);
   const lastDiagUpdateAtRef = useRef(0);
   const faceMosaicCanvasRef = useRef(null);
@@ -164,6 +261,14 @@ export default function VideoInput({ onAnalysisComplete }) {
   function cancelLoops() { cancelAnimationFrame(rafRef.current); }
   function scheduleNextFrame() { rafRef.current = requestAnimationFrame(() => step()); }
 
+  const openFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const toggleFaceMosaic = useCallback(() => {
+    setIsFaceMosaic((prev) => !prev);
+  }, []);
+
   function pickRecorderMimeType() {
     const list = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
     for (const mime of list) if (window.MediaRecorder?.isTypeSupported?.(mime)) return mime;
@@ -175,7 +280,7 @@ export default function VideoInput({ onAnalysisComplete }) {
     return base.replace(/[\\/:*?"<>|]+/g, "_");
   }
 
-  async function exportSkeletonVideo() {
+  const exportSkeletonVideo = useCallback(async () => {
     if (isExporting) return;
     if (!urlRef.current) { setHint("먼저 영상을 업로드해 주세요."); return; }
     if (!window.MediaRecorder) { setHint("이 브라우저는 영상 내보내기를 지원하지 않습니다."); return; }
@@ -284,7 +389,19 @@ export default function VideoInput({ onAnalysisComplete }) {
       try { exportLandmarker?.close?.(); } catch {}
       setIsExporting(false);
     }
-  }
+  }, [fileLabel, isExporting]);
+
+  useEffect(() => {
+    onControlsChange?.({
+      hasVideo,
+      fileLabel,
+      isExporting,
+      isFaceMosaic,
+      openFilePicker,
+      toggleFaceMosaic,
+      exportSkeletonVideo,
+    });
+  }, [exportSkeletonVideo, fileLabel, hasVideo, isExporting, isFaceMosaic, onControlsChange, openFilePicker, toggleFaceMosaic]);
 
   async function resetLandmarkerIfNeeded() {
     const lm = landmarkerRef.current;
@@ -319,7 +436,11 @@ export default function VideoInput({ onAnalysisComplete }) {
       const prev = depthSeriesRef.current;
       return prev.length ? prev[prev.length - 1] : null;
     }
-    let merged = depthSeriesRef.current.concat(values);
+    values.forEach((value) => {
+      const next = stabilizeDepthValue(value, depthSeriesRef.current);
+      depthSeriesRef.current = depthSeriesRef.current.concat([next]);
+    });
+    let merged = depthSeriesRef.current;
     if (merged.length > 2000) merged = merged.slice(-1000);
     depthSeriesRef.current = merged;
     return merged[merged.length - 1] ?? null;
@@ -448,6 +569,7 @@ export default function VideoInput({ onAnalysisComplete }) {
     if (!file.type?.startsWith("video/")) { setHint("비디오 파일만 지원합니다."); return; }
     currentFileRef.current = file;
     setFileLabel(file.name);
+    setHasVideo(true);
     cancelLoops();
     setHint("엔진 초기화 중...");
     const freshLandmarker = await recreateLandmarker();
@@ -507,24 +629,8 @@ export default function VideoInput({ onAnalysisComplete }) {
     if (event.dataTransfer?.files?.length) await handleFiles(event.dataTransfer.files);
   };
 
-  const resultClassName = result?.summary === "PASS" ? "video-result pass" : result?.summary === "FAIL" ? "video-result fail" : "video-result";
-
   return (
     <div className="video-layout">
-      <div className="video-actions">
-        <div className="uploader">
-          <input id="videoFile" type="file" accept="video/mp4,video/webm,video/quicktime" onChange={onFile} className="uploader-input" />
-          <label className="btn-upload" htmlFor="videoFile">영상 선택</label>
-          <button type="button" className="btn-upload" onClick={exportSkeletonVideo} disabled={!urlRef.current || isExporting}>
-            {isExporting ? "생성 중..." : "스켈레톤 다운로드"}
-          </button>
-          <button type="button" className="secondary-btn" onClick={() => setIsFaceMosaic((prev) => !prev)}>
-            {isFaceMosaic ? "얼굴 모자이크 ON" : "얼굴 모자이크 OFF"}
-          </button>
-          <span className="file-name">{fileLabel || "선택된 파일이 없습니다"}</span>
-        </div>
-      </div>
-
       <div
         className={`drop${drag ? " drag" : ""}`}
         onDragOver={onDragOver}
@@ -533,12 +639,20 @@ export default function VideoInput({ onAnalysisComplete }) {
         role="button"
         tabIndex={0}
         onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") document.getElementById("videoFile")?.click();
+          if (event.key === "Enter" || event.key === " ") openFilePicker();
         }}
         aria-label="여기로 영상을 드래그하거나 Enter로 파일 선택 창을 여세요"
       >
+        <input
+          ref={fileInputRef}
+          id="videoFile"
+          type="file"
+          accept="video/mp4,video/webm,video/quicktime"
+          onChange={onFile}
+          className="uploader-input"
+        />
         <div className="drop-title">여기로 스쿼트 영상을 드래그하세요</div>
-        <div className="drop-tip">또는 위의 영상 선택 버튼으로 파일을 고르세요.</div>
+        <div className="drop-tip">상단 버튼으로 파일을 선택하거나 이 영역에 바로 드래그하세요.</div>
         <div className="drop-accept">지원 형식: mp4 / webm / mov</div>
       </div>
 
@@ -549,6 +663,7 @@ export default function VideoInput({ onAnalysisComplete }) {
 
       <div className="video-meta">
         <div>{hint}</div>
+        {fileLabel ? <div>선택 파일: <strong>{fileLabel}</strong></div> : null}
         {lastDiag ? (
           <div>
             reason: <strong>{lastDiag.reason}</strong>
@@ -558,14 +673,6 @@ export default function VideoInput({ onAnalysisComplete }) {
         ) : null}
       </div>
 
-      <pre className={resultClassName}>
-{result ? `SUMMARY: ${result.summary}
-PASS: ${result.pass} | FAIL: ${result.fail} | UNSURE: ${result.unsure ?? 0}
-TH: ${result.threshold} | HOLD: ${result.hold}
-max depth_ratio: ${result.depthRatioMax?.toFixed?.(2) ?? "-"}
-${result.reps?.length ? `\n${result.reps.map((rep) => `REP ${rep.index}: ${rep.status} (peak=${rep.peak.toFixed(2)}, hold=${rep.hold})`).join("\n")}` : "\nREP: none"}
-` : "Ready."}
-      </pre>
     </div>
   );
 }
