@@ -19,6 +19,7 @@ public record RecordResponse(
         BigDecimal thresholdValue,
         int holdFrames,
         OffsetDateTime verifiedAt,
-        OffsetDateTime createdAt
+        OffsetDateTime createdAt,
+        boolean requiresReviewVideoUpload
 ) {
 }

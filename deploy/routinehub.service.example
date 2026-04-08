@@ -1,0 +1,15 @@
+[Unit]
+Description=Squat Map Spring Boot Backend
+After=network.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/ec2-user/app
+EnvironmentFile=/home/ec2-user/app/.env
+ExecStart=/usr/bin/java -jar /home/ec2-user/app/app.jar
+SuccessExitStatus=143
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

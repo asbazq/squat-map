@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReviewQueueService {
 
     private final ReviewQueueItemRepository reviewQueueItemRepository;
+    private final ReviewVideoStorageService reviewVideoStorageService;
 
     @Transactional(readOnly = true)
     public ReviewQueueResponse getPendingQueue() {
@@ -29,18 +30,7 @@ public class ReviewQueueService {
     @Transactional
     public ReviewQueueResponse enqueue(List<String> recordIds) {
         for (String recordId : recordIds) {
-            reviewQueueItemRepository.findByRecordId(recordId).ifPresentOrElse(
-                    existing -> {
-                        existing.setStatus(ReviewStatus.PENDING);
-                        reviewQueueItemRepository.save(existing);
-                    },
-                    () -> {
-                        ReviewQueueItem item = new ReviewQueueItem();
-                        item.setRecordId(recordId);
-                        item.setStatus(ReviewStatus.PENDING);
-                        reviewQueueItemRepository.save(item);
-                    }
-            );
+            enqueueRecord(recordId);
         }
         return getPendingQueue();
     }
@@ -51,6 +41,7 @@ public class ReviewQueueService {
             item.setStatus(ReviewStatus.APPROVED);
             reviewQueueItemRepository.save(item);
         });
+        reviewVideoStorageService.deleteReviewVideo(recordId);
         return getPendingQueue();
     }
 
@@ -60,16 +51,40 @@ public class ReviewQueueService {
             item.setStatus(ReviewStatus.REJECTED);
             reviewQueueItemRepository.save(item);
         });
+        reviewVideoStorageService.deleteReviewVideo(recordId);
         return getPendingQueue();
     }
 
     @Transactional
     public ReviewQueueResponse remove(String recordId) {
         reviewQueueItemRepository.deleteByRecordId(recordId);
+        reviewVideoStorageService.deleteReviewVideo(recordId);
         return getPendingQueue();
     }
 
+    @Transactional
+    public void enqueueRecord(String recordId) {
+        reviewQueueItemRepository.findByRecordId(recordId).ifPresentOrElse(
+                existing -> {
+                    existing.setStatus(ReviewStatus.PENDING);
+                    reviewQueueItemRepository.save(existing);
+                },
+                () -> {
+                    ReviewQueueItem item = new ReviewQueueItem();
+                    item.setRecordId(recordId);
+                    item.setStatus(ReviewStatus.PENDING);
+                    reviewQueueItemRepository.save(item);
+                }
+        );
+    }
+
     private ReviewQueueItemResponse toResponse(ReviewQueueItem item) {
-        return new ReviewQueueItemResponse(item.getId(), item.getRecordId(), item.getStatus(), item.getCreatedAt());
+        return new ReviewQueueItemResponse(
+                item.getId(),
+                item.getRecordId(),
+                item.getStatus(),
+                item.getCreatedAt(),
+                reviewVideoStorageService.getReviewVideoUrl(item.getRecordId())
+        );
     }
 }

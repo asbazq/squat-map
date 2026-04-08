@@ -1,4 +1,13 @@
-﻿const SESSION_KEY = "squat-map-admin-session-v1";
+const SESSION_KEY = "squat-map-admin-session-v1";
+
+async function readErrorMessage(response, fallbackMessage) {
+  try {
+    const payload = await response.json();
+    return payload?.message || fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
+}
 
 export function isAdminAuthenticated() {
   if (typeof window === "undefined") return false;
@@ -23,7 +32,7 @@ export async function loginAdmin(username, password) {
   });
 
   if (!response.ok) {
-    throw new Error("admin login failed");
+    throw new Error(await readErrorMessage(response, "admin login failed"));
   }
 
   const payload = await response.json();
@@ -56,7 +65,7 @@ export async function fetchReviewQueue(adminSession) {
   });
 
   if (!response.ok) {
-    throw new Error("review queue fetch failed");
+    throw new Error(await readErrorMessage(response, "review queue fetch failed"));
   }
 
   const payload = await response.json();
@@ -70,7 +79,21 @@ export async function approveReviewRecord(recordId, adminSession) {
   });
 
   if (!response.ok) {
-    throw new Error("review approve failed");
+    throw new Error(await readErrorMessage(response, "review approve failed"));
+  }
+
+  const payload = await response.json();
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
+export async function rejectReviewRecord(recordId, adminSession) {
+  const response = await fetch(`/api/admin/review-queue/${recordId}/reject`, {
+    method: "POST",
+    headers: buildAdminHeaders(adminSession),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "review reject failed"));
   }
 
   const payload = await response.json();

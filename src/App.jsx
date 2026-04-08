@@ -8,28 +8,22 @@ import AdminPanel from "./components/AdminPanel";
 import DashboardOverview from "./components/DashboardOverview";
 import AnalysisSummary from "./components/AnalysisSummary";
 import {
-  enqueueReviewRecords,
+  approveReviewRecord,
+  fetchReviewQueue,
+  getAdminSession,
   isAdminAuthenticated,
-  loadReviewQueue,
   loginAdmin,
+  rejectReviewRecord,
   logoutAdmin,
-  removeReviewRecord,
-} from "./lib/admin";
+} from "./lib/adminApi";
 import {
   DEFAULT_REGION,
   REGIONS,
   buildSubmissionFromAnalysis,
   computeRegionLeaders,
   computeRankings,
-  deleteRecord,
-  loadRecords,
-  saveRecord,
 } from "./lib/records";
-import { deleteVideo, saveVideo } from "./lib/videoStore";
-
-function getNationalTopFiveIds(records) {
-  return computeRankings(records).national.slice(0, 5).map((record) => record.id);
-}
+import { createRecord, fetchRecords, removeRecord, uploadReviewVideo } from "./lib/recordApi";
 
 export default function App() {
   const [records, setRecords] = useState([]);
@@ -39,14 +33,37 @@ export default function App() {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [reviewQueue, setReviewQueue] = useState([]);
   const [adminLoginError, setAdminLoginError] = useState("");
+  const [adminActionError, setAdminActionError] = useState("");
   const [isAdminButtonVisible, setIsAdminButtonVisible] = useState(false);
   const [isAdminModalVisible, setIsAdminModalVisible] = useState(false);
   const [videoControls, setVideoControls] = useState(null);
 
   useEffect(() => {
-    setRecords(loadRecords());
+    let active = true;
+
+    (async () => {
+      try {
+        const nextRecords = await fetchRecords();
+        if (active) setRecords(nextRecords);
+      } catch {
+        if (active) setRecords([]);
+      }
+
+      if (!isAdminAuthenticated()) return;
+
+      try {
+        const nextQueue = await fetchReviewQueue();
+        if (active) setReviewQueue(nextQueue);
+      } catch {
+        if (active) setReviewQueue([]);
+      }
+    })();
+
     setIsAdminOpen(isAdminAuthenticated());
-    setReviewQueue(loadReviewQueue());
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const rankings = useMemo(() => computeRankings(records), [records]);
@@ -71,30 +88,34 @@ export default function App() {
   }, []);
 
   function handleAnalysisComplete(result, videoFile) {
+    const submission = buildSubmissionFromAnalysis(result);
     setLatestResult(result);
     setPendingSubmission({
-      ...buildSubmissionFromAnalysis(result),
-      videoFile: result?.summary === "PASS" ? videoFile ?? null : null,
+      ...submission,
+      videoFile: submission?.canSubmit ? videoFile ?? null : null,
     });
   }
 
   async function handleSaveRecord(formData) {
     if (!pendingSubmission?.canSubmit) return;
-    const previousTopFive = getNationalTopFiveIds(records);
+    setAdminActionError("");
 
-    const saved = saveRecord({
+    const saved = await createRecord({
       ...formData,
       verification: pendingSubmission.verification,
     });
     const nextRecords = [saved, ...records];
 
-    const nextTopFive = getNationalTopFiveIds(nextRecords);
-    const enteredTopFive = nextTopFive.filter((id) => !previousTopFive.includes(id));
-    if (enteredTopFive.length) {
-      if (enteredTopFive.includes(saved.id) && pendingSubmission.videoFile) {
-        await saveVideo(saved.id, pendingSubmission.videoFile);
+    if (saved.requiresReviewVideoUpload && pendingSubmission.videoFile) {
+      await uploadReviewVideo(saved.id, pendingSubmission.videoFile);
+      if (isAdminAuthenticated()) {
+        setReviewQueue(await fetchReviewQueue());
+      } else {
+        setReviewQueue((prev) => {
+          if (prev.some((item) => item.recordId === saved.id)) return prev;
+          return [{ recordId: saved.id, reviewVideoUrl: null }, ...prev];
+        });
       }
-      setReviewQueue(enqueueReviewRecords(enteredTopFive));
     }
 
     setRecords(nextRecords);
@@ -107,27 +128,64 @@ export default function App() {
     });
   }
 
-  function handleAdminLogin(password) {
-    const ok = loginAdmin(password);
-    setIsAdminOpen(ok);
-    setAdminLoginError(ok ? "" : "관리자 비밀번호가 올바르지 않습니다.");
+  async function handleAdminLogin(username, password) {
+    try {
+      const ok = await loginAdmin(username, password);
+      setIsAdminOpen(ok);
+      if (ok) {
+        setReviewQueue(await fetchReviewQueue({ username, password }));
+      }
+      setAdminLoginError(ok ? "" : "관리자 아이디 또는 비밀번호가 올바르지 않습니다.");
+    } catch {
+      setIsAdminOpen(false);
+      setReviewQueue([]);
+      setAdminLoginError("관리자 로그인 요청에 실패했습니다.");
+    }
   }
 
   function handleAdminLogout() {
     logoutAdmin();
     setIsAdminOpen(false);
+    setReviewQueue([]);
   }
 
   async function handleApproveRecord(recordId) {
-    await deleteVideo(recordId);
-    setReviewQueue(removeReviewRecord(recordId));
+    setReviewQueue(await approveReviewRecord(recordId, getAdminSession()));
   }
 
   async function handleDeleteManagedRecord(recordId) {
-    const nextRecords = deleteRecord(recordId);
-    await deleteVideo(recordId);
+    await removeRecord(recordId, getAdminSession());
+    const nextRecords = records.filter((record) => record.id !== recordId);
     setRecords(nextRecords);
-    setReviewQueue(removeReviewRecord(recordId));
+    setReviewQueue((prev) => prev.filter((item) => item.recordId !== recordId));
+  }
+
+  async function handleApproveRecordWithError(recordId) {
+    try {
+      setAdminActionError("");
+      setReviewQueue(await approveReviewRecord(recordId, getAdminSession()));
+    } catch (error) {
+      setAdminActionError(error.message || "검수 승인에 실패했습니다.");
+    }
+  }
+
+  async function handleRejectRecordWithError(recordId) {
+    try {
+      setAdminActionError("");
+      setReviewQueue(await rejectReviewRecord(recordId, getAdminSession()));
+      setRecords((prev) => prev.filter((record) => record.id !== recordId));
+    } catch (error) {
+      setAdminActionError(error.message || "검수 반려에 실패했습니다.");
+    }
+  }
+
+  async function handleDeleteManagedRecordWithError(recordId) {
+    try {
+      setAdminActionError("");
+      await handleDeleteManagedRecord(recordId);
+    } catch (error) {
+      setAdminActionError(error.message || "기록 삭제에 실패했습니다.");
+    }
   }
 
   function handleAdminBadgeClick() {
@@ -264,13 +322,14 @@ export default function App() {
             <AdminPanel
               isAuthenticated={isAdminOpen}
               loginError={adminLoginError}
+              actionError={adminActionError}
               reviewQueue={reviewQueue}
               records={records}
               onLogin={handleAdminLogin}
               onLogout={handleAdminLogout}
-              onApproveRecord={handleApproveRecord}
-              onRejectRecord={handleDeleteManagedRecord}
-              onDeleteRecord={handleDeleteManagedRecord}
+              onApproveRecord={handleApproveRecordWithError}
+              onRejectRecord={handleRejectRecordWithError}
+              onDeleteRecord={handleDeleteManagedRecordWithError}
             />
           </section>
         </div>

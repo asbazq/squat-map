@@ -54,7 +54,7 @@ export default function RecordForm({ pendingSubmission, latestResult, onSave }) 
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     if (!canSubmit) {
       setStatus("먼저 영상을 분석해 풀스쿼트 PASS를 받아야 합니다.");
@@ -67,19 +67,23 @@ export default function RecordForm({ pendingSubmission, latestResult, onSave }) 
       return;
     }
 
-    onSave({
-      nickname: form.nickname.trim(),
-      region: form.region,
-      locationName: form.region,
-      recordKg,
-      notes: form.notes.trim(),
-      latitude: null,
-      longitude: null,
-    });
+    try {
+      await onSave({
+        nickname: form.nickname.trim(),
+        region: form.region,
+        locationName: form.region,
+        recordKg,
+        notes: form.notes.trim(),
+        latitude: null,
+        longitude: null,
+      });
 
-    setForm(initialForm);
-    setStatus("기록을 저장했습니다. 지도와 랭킹에 바로 반영됩니다.");
-    hasRequestedLocationRef.current = false;
+      setForm(initialForm);
+      setStatus("기록을 저장했습니다. 지도와 랭킹에 바로 반영됩니다.");
+      hasRequestedLocationRef.current = false;
+    } catch {
+      setStatus("기록 저장에 실패했습니다. 잠시 후 다시 시도하세요.");
+    }
   }
 
   return (

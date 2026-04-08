@@ -16,31 +16,47 @@ Windows:
 
 ## Environment Variables
 
-- `DB_URL`
-- `DB_USERNAME`
-- `DB_PASSWORD`
+- `SPRING_DATASOURCE_URL`
+- `SPRING_DATASOURCE_USERNAME`
+- `SPRING_DATASOURCE_PASSWORD`
 - `PORT`
 - `CORS_ALLOWED_ORIGINS`
 - `ADMIN_BOOTSTRAP_USERNAME`
 - `ADMIN_BOOTSTRAP_PASSWORD`
+- `S3_ENABLED`
+- `S3_REGION`
+- `S3_BUCKET`
+- `S3_ACCESS_KEY`
+- `S3_SECRET_KEY`
+- `S3_ENDPOINT`
+- `S3_REVIEW_VIDEO_PREFIX`
+- `S3_PRESIGNED_URL_MINUTES`
 
 Example:
 
 ```powershell
-$env:DB_URL="jdbc:mysql://localhost:3306/squat_map?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul"
-$env:DB_USERNAME="root"
-$env:DB_PASSWORD="password"
-$env:CORS_ALLOWED_ORIGINS="http://localhost:5173"
+$env:SPRING_DATASOURCE_URL="jdbc:mysql://localhost:3306/squat_map?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul"
+$env:SPRING_DATASOURCE_USERNAME="root"
+$env:SPRING_DATASOURCE_PASSWORD="password"
+$env:CORS_ALLOWED_ORIGINS="http://43.201.61.156"
 $env:ADMIN_BOOTSTRAP_USERNAME="admin"
 $env:ADMIN_BOOTSTRAP_PASSWORD="change-me"
+$env:S3_ENABLED="true"
+$env:S3_REGION="ap-northeast-2"
+$env:S3_BUCKET="your-squat-map-bucket"
+$env:S3_ACCESS_KEY="AKIA..."
+$env:S3_SECRET_KEY="..."
 .\gradlew.bat bootRun
 ```
+
+For EC2 with `systemd`, copy [`.env.example`](E:\Project\squat-map\backend\.env.example) to `.env` on the server, set the real secrets there, and point your service to it with `EnvironmentFile=/home/ec2-user/app/.env`. A service template is included at [`deploy/routinehub.service.example`](E:\Project\squat-map\deploy\routinehub.service.example).
 
 ## API
 
 - `GET /api/health`
 - `GET /api/records`
 - `POST /api/records`
+- `POST /api/records/{recordId}/review-video`
 - `DELETE /api/records/{recordId}`
 - `GET /api/rankings`
 - `POST /api/admin/auth/login`
@@ -62,8 +78,18 @@ This is a bootstrap-friendly server-side check for early integration. For produc
 ## Storage Model
 
 - Records, rankings, review queue metadata: `RDS`
-- Review video binary itself: not implemented here
-- Recommended production path for video: `S3` + metadata in `review_videos`
+- Review video binary: `S3`
+- Review video metadata: `review_videos` table
+- Admin queue response returns presigned S3 video URLs for playback
+
+## Review Video Flow
+
+1. Record creation checks whether the new record entered the national Top 5.
+2. If it did, the backend creates or reopens a pending review-queue item.
+3. The frontend uploads the associated verification video with `POST /api/records/{recordId}/review-video`.
+4. The backend stores the file in S3 and saves object metadata in `review_videos`.
+5. Admin review queue responses include a presigned playback URL.
+6. Approve/reject/delete operations remove the S3 object and the metadata row.
 
 ## Nginx
 

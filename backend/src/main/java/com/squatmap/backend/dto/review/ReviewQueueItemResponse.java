@@ -7,6 +7,7 @@ public record ReviewQueueItemResponse(
         Long id,
         String recordId,
         ReviewStatus status,
-        OffsetDateTime createdAt
+        OffsetDateTime createdAt,
+        String reviewVideoUrl
 ) {
 }

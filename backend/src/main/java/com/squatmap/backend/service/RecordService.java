@@ -5,9 +5,10 @@ import com.squatmap.backend.dto.record.CreateRecordRequest;
 import com.squatmap.backend.dto.record.RecordResponse;
 import com.squatmap.backend.entity.SquatRecord;
 import com.squatmap.backend.repository.ReviewQueueItemRepository;
-import com.squatmap.backend.repository.ReviewVideoRepository;
 import com.squatmap.backend.repository.SquatRecordRepository;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,17 +19,20 @@ public class RecordService {
 
     private final SquatRecordRepository squatRecordRepository;
     private final ReviewQueueItemRepository reviewQueueItemRepository;
-    private final ReviewVideoRepository reviewVideoRepository;
+    private final ReviewQueueService reviewQueueService;
+    private final ReviewVideoStorageService reviewVideoStorageService;
 
     @Transactional(readOnly = true)
     public List<RecordResponse> getAllRecords() {
         return squatRecordRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(this::toResponse)
+                .map(record -> toResponse(record, false))
                 .toList();
     }
 
     @Transactional
     public RecordResponse createRecord(CreateRecordRequest request) {
+        Set<String> previousTopFive = getNationalTopFiveIds();
+
         SquatRecord record = new SquatRecord();
         record.setNickname(request.nickname().trim());
         record.setRegion(Region.from(request.region()));
@@ -44,17 +48,27 @@ public class RecordService {
         record.setHoldFrames(request.verification().hold());
         record.setVerifiedAt(request.verification().verifiedAt());
 
-        return toResponse(squatRecordRepository.save(record));
+        SquatRecord saved = squatRecordRepository.save(record);
+        boolean requiresReviewVideoUpload = enteredNationalTopFive(saved.getId(), previousTopFive);
+        if (requiresReviewVideoUpload) {
+            reviewQueueService.enqueueRecord(saved.getId());
+        }
+
+        return toResponse(saved, requiresReviewVideoUpload);
     }
 
     @Transactional
     public void deleteRecord(String recordId) {
-        squatRecordRepository.deleteById(recordId);
         reviewQueueItemRepository.deleteByRecordId(recordId);
-        reviewVideoRepository.deleteByRecordId(recordId);
+        reviewVideoStorageService.deleteReviewVideo(recordId);
+        squatRecordRepository.deleteById(recordId);
     }
 
     public RecordResponse toResponse(SquatRecord record) {
+        return toResponse(record, false);
+    }
+
+    public RecordResponse toResponse(SquatRecord record, boolean requiresReviewVideoUpload) {
         return new RecordResponse(
                 record.getId(),
                 record.getNickname(),
@@ -70,7 +84,20 @@ public class RecordService {
                 record.getThresholdValue(),
                 record.getHoldFrames(),
                 record.getVerifiedAt(),
-                record.getCreatedAt()
+                record.getCreatedAt(),
+                requiresReviewVideoUpload
         );
+    }
+
+    private boolean enteredNationalTopFive(String recordId, Set<String> previousTopFive) {
+        Set<String> nextTopFive = getNationalTopFiveIds();
+        return nextTopFive.contains(recordId) && !previousTopFive.contains(recordId);
+    }
+
+    private Set<String> getNationalTopFiveIds() {
+        return new HashSet<>(squatRecordRepository.findTop10ByOrderByRecordKgDescCreatedAtDesc().stream()
+                .limit(5)
+                .map(SquatRecord::getId)
+                .toList());
     }
 }

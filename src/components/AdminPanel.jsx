@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { getVideo } from "../lib/videoStore";
+import { useMemo, useState } from "react";
 import { REGIONS } from "../lib/records";
 
 const TEXT = {
   loginDesc: "\uad00\ub9ac\uc790\ub9cc \uc811\uadfc\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4. \uc804\uad6d \uc21c\uc704 5\uc704\uad8c \ubcc0\ub3d9 \uc601\uc0c1\uc740 \uc774 \uacf5\uac04\uc5d0\uc11c\ub9cc \uac80\uc218\ub429\ub2c8\ub2e4.",
+  username: "\uad00\ub9ac\uc790 \uc544\uc774\ub514",
+  usernamePlaceholder: "\uc544\uc774\ub514 \uc785\ub825",
   password: "\uad00\ub9ac\uc790 \ube44\ubc00\ubc88\ud638",
   passwordPlaceholder: "\ube44\ubc00\ubc88\ud638 \uc785\ub825",
   login: "\uad00\ub9ac\uc790 \ub85c\uadf8\uc778",
@@ -27,11 +28,13 @@ const TEXT = {
 };
 
 function AdminLogin({ onLogin, error }) {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
   function handleSubmit(event) {
     event.preventDefault();
-    onLogin(password);
+    onLogin(username, password);
+    setUsername("");
     setPassword("");
   }
 
@@ -39,6 +42,15 @@ function AdminLogin({ onLogin, error }) {
     <div className="admin-login">
       <p>{TEXT.loginDesc}</p>
       <form className="admin-login-form" onSubmit={handleSubmit}>
+        <label>
+          <span>{TEXT.username}</span>
+          <input
+            type="text"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder={TEXT.usernamePlaceholder}
+          />
+        </label>
         <label>
           <span>{TEXT.password}</span>
           <input
@@ -55,7 +67,7 @@ function AdminLogin({ onLogin, error }) {
   );
 }
 
-function QueueList({ items, videoUrls, onApprove, onReject }) {
+function QueueList({ items, onApprove, onReject }) {
   if (!items.length) return <div className="empty-panel">{TEXT.emptyQueue}</div>;
 
   return (
@@ -70,8 +82,8 @@ function QueueList({ items, videoUrls, onApprove, onReject }) {
             <span className="admin-badge">{TEXT.top5Changed}</span>
           </div>
 
-          {videoUrls[item.id] ? (
-            <video className="admin-video" controls src={videoUrls[item.id]} preload="metadata" />
+          {item.reviewVideoUrl ? (
+            <video className="admin-video" controls src={item.reviewVideoUrl} preload="metadata" />
           ) : (
             <div className="empty-panel">{TEXT.tempVideoMissing}</div>
           )}
@@ -115,6 +127,7 @@ function RecordsTable({ records, onDeleteRecord }) {
 export default function AdminPanel({
   isAuthenticated,
   loginError,
+  actionError,
   reviewQueue,
   records,
   onLogin,
@@ -123,51 +136,18 @@ export default function AdminPanel({
   onRejectRecord,
   onDeleteRecord,
 }) {
-  const [videoUrls, setVideoUrls] = useState({});
   const [recordRegion, setRecordRegion] = useState(TEXT.all);
-  const queuedRecords = reviewQueue.map((id) => records.find((record) => record.id === id)).filter(Boolean);
-  const queuedRecordKey = reviewQueue.join(",");
+  const queuedRecords = useMemo(
+    () => reviewQueue.map((item) => {
+      const record = records.find((entry) => entry.id === item.recordId);
+      return record ? { ...record, reviewVideoUrl: item.reviewVideoUrl } : null;
+    }).filter(Boolean),
+    [records, reviewQueue],
+  );
   const filteredRecords = useMemo(() => {
     if (recordRegion === TEXT.all) return records;
     return records.filter((record) => record.region === recordRegion);
   }, [recordRegion, records]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !queuedRecords.length) {
-      setVideoUrls((current) => {
-        Object.values(current).forEach((url) => URL.revokeObjectURL(url));
-        return {};
-      });
-      return undefined;
-    }
-
-    let active = true;
-    const previousUrls = [];
-
-    (async () => {
-      const entries = await Promise.all(
-        queuedRecords.map(async (record) => {
-          const blob = await getVideo(record.id);
-          return blob ? [record.id, URL.createObjectURL(blob)] : [record.id, null];
-        }),
-      );
-
-      if (!active) {
-        entries.forEach(([, url]) => { if (url) URL.revokeObjectURL(url); });
-        return;
-      }
-
-      setVideoUrls((current) => {
-        previousUrls.push(...Object.values(current));
-        return Object.fromEntries(entries.filter(([, url]) => Boolean(url)));
-      });
-    })();
-
-    return () => {
-      active = false;
-      previousUrls.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [isAuthenticated, queuedRecordKey]);
 
   if (!isAuthenticated) {
     return <AdminLogin onLogin={onLogin} error={loginError} />;
@@ -186,7 +166,8 @@ export default function AdminPanel({
 
       <div className="admin-section">
         <h3>{TEXT.queueTitle}</h3>
-        <QueueList items={queuedRecords} videoUrls={videoUrls} onApprove={onApproveRecord} onReject={onRejectRecord} />
+        {actionError ? <div className="form-status">{actionError}</div> : null}
+        <QueueList items={queuedRecords} onApprove={onApproveRecord} onReject={onRejectRecord} />
       </div>
 
       <div className="admin-section">
@@ -206,6 +187,7 @@ export default function AdminPanel({
             </select>
           </div>
         </div>
+        {actionError ? <div className="form-status">{actionError}</div> : null}
         <RecordsTable records={filteredRecords} onDeleteRecord={onDeleteRecord} />
       </div>
     </div>
